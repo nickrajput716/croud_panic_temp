@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Crowd Panic Prediction System</title>
+  
+</head>
+<body>
+
+  <h1>Crowd Panic Prediction System</h1>
+  <p><strong>Public Safety AI</strong> — Real-time stampede risk detection using computer vision and motion analysis.</p>
+  <hr>
+
+  <h2>How It Works</h2>
+  <ol>
+    <li><strong>Motion Vector Analysis</strong> — Farneback optical flow tracks every pixel's movement between frames.</li>
+    <li><strong>Direction Entropy</strong> — Measures chaotic / random movement. Normal crowds move together; panicking crowds scatter.</li>
+    <li><strong>Crowd Density Estimation</strong> — MOG2 background subtraction identifies foreground (people) pixels.</li>
+    <li><strong>Turbulence &amp; Divergence</strong> — Spatial variance and outward flow patterns flag stampede precursors.</li>
+    <li><strong>Panic Score 0–100</strong> — Weighted fusion of all signals with five risk levels: NORMAL / LOW / MODERATE / HIGH / CRITICAL.</li>
+  </ol>
+  <hr>
+
+  <h2>Option 1 — Analyse a Video File</h2>
+  <p>Upload a CCTV or crowd footage file (MP4, AVI, MOV, MKV, WEBM, FLV — up to 200 MB).</p>
+
+  <form action="/upload" method="post" enctype="multipart/form-data">
+    <label for="video"><strong>Select video file:</strong></label><br><br>
+    <input type="file" id="video" name="video" accept="video/*" required><br><br>
+    <input type="submit" value="Upload &amp; Analyse">
+  </form>
+  <hr>
+
+  <h2>Option 2 — Live Webcam Feed</h2>
+  <p>Process frames from your webcam in real time using your browser camera.</p>
+  <a href="/live"><strong>Open Live Monitor →</strong></a>
+  <hr>
+
+  <h2>Option 3 — Run Demo (No Upload Needed)</h2>
+  <p>See a full synthetic analysis report with charts — no video required.</p>
+  <a href="/demo"><strong>View Demo Report →</strong></a>
+  <hr>
+
+  <h2>Risk Level Reference</h2>
+  <table border="1" cellpadding="6">
+    <tr><th>Risk Level</th><th>Panic Score</th><th>Interpretation</th><th>Recommended Action</th></tr>
+    <tr><td>NORMAL</td><td>0 – 24</td><td>Calm, orderly crowd movement</td><td>Routine monitoring</td></tr>
+    <tr><td>LOW</td><td>25 – 44</td><td>Minor anomalies detected</td><td>Increase observation frequency</td></tr>
+    <tr><td>MODERATE</td><td>45 – 64</td><td>Elevated chaotic motion signals</td><td>Deploy crowd-management personnel</td></tr>
+    <tr><td>HIGH</td><td>65 – 79</td><td>Strong panic indicators present</td><td>Initiate dispersal protocols</td></tr>
+    <tr><td>CRITICAL</td><td>80 – 100</td><td>Imminent stampede conditions</td><td>Activate emergency response immediately</td></tr>
+  </table>
+  <hr>
+
+  <h2>Technical Architecture</h2>
+  <ul>
+    <li><strong>Backend:</strong> Python + Flask + OpenCV</li>
+    <li><strong>Optical Flow:</strong> Gunnar Farneback dense optical flow</li>
+    <li><strong>Background Subtraction:</strong> Mixture-of-Gaussians (MOG2)</li>
+    <li><strong>Anomaly Detection:</strong> Multi-signal weighted fusion (speed, entropy, density, acceleration, turbulence, divergence)</li>
+    <li><strong>Charts:</strong> Chart.js (CDN)</li>
+  </ul>
+
+</body>
+</html>

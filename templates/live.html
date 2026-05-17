@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Monitor — Crowd Panic Prediction</title>
+  
+</head>
+<body>
+
+  <h1>Crowd Panic Prediction System — Live Monitor</h1>
+  <a href="/">← Back to Home</a>
+  <hr>
+
+  <h2>Real-Time Webcam Analysis</h2>
+  <p>Your webcam frames are sent to the server every second for panic analysis using optical flow and anomaly detection.</p>
+  <p><strong>Session ID:</strong> {{ session_id }}</p>
+
+  <table>
+    <tr>
+      <td valign="top">
+        <!-- Controls -->
+        <p>
+          <button id="startBtn" onclick="startCamera()">Start Camera</button>
+          <button id="stopBtn" onclick="stopCamera()" disabled>Stop Camera</button>
+        </p>
+
+        <!-- Raw webcam feed -->
+        <h3>Webcam Input</h3>
+        <video id="webcam" width="480" height="270" autoplay muted style="border:1px solid black"></video>
+        <canvas id="capture" width="480" height="270" style="display:none"></canvas>
+
+        <!-- Annotated output from server -->
+        <h3>Server Output (Optical Flow Overlay)</h3>
+        <img id="annotated" width="480" height="270" alt="Waiting for frames..." style="border:1px solid black">
+        <br>
+        <small>Arrows = motion vectors | Green = slow | Red = fast | Banner = panic score</small>
+      </td>
+
+      <td valign="top" style="padding-left:40px; min-width:320px">
+        <!-- Live stats panel -->
+        <h3>Live Statistics</h3>
+        <table border="1" cellpadding="6" id="statsTable">
+          <tr><th>Metric</th><th>Value</th></tr>
+          <tr><td>Panic Score</td><td id="s_panic">—</td></tr>
+          <tr><td>Risk Level</td><td id="s_risk">—</td></tr>
+          <tr><td>Avg Speed</td><td id="s_speed">—</td></tr>
+          <tr><td>Direction Entropy</td><td id="s_entropy">—</td></tr>
+          <tr><td>Crowd Density</td><td id="s_density">—</td></tr>
+          <tr><td>Acceleration</td><td id="s_accel">—</td></tr>
+          <tr><td>Frames Sent</td><td id="s_frames">0</td></tr>
+          <tr><td>Status</td><td id="s_status">Idle</td></tr>
+        </table>
+
+        <br>
+        <h3>Panic Score History (last 60 readings)</h3>
+        <canvas id="histChart" width="320" height="180" style="border:1px solid grey"></canvas>
+        <br>
+
+        <h3>Alert Log</h3>
+        <div id="alertLog" style="height:200px;overflow-y:auto;border:1px solid black;padding:4px;font-family:monospace;font-size:12px">
+          (alerts will appear here)
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <hr>
+  <h3>Notes on Live Mode</h3>
+  <ul>
+    <li>Optical flow requires motion between frames — static scenes will score near 0.</li>
+    <li>Point camera at a crowd simulation, walkway, or video playing on another screen for meaningful results.</li>
+    <li>Processing runs on the server; network latency affects refresh rate.</li>
+    <li>Session state is maintained server-side for the duration of this page visit.</li>
+  </ul>
+
+  <script>
+    const SESSION_ID = "{{ session_id }}";
+    let stream = null;
+    let timer  = null;
+    let frameCount = 0;
+    let history = [];
+
+    // ── Mini canvas-based line chart ──
+    function drawHistory(canvas, data) {
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+
+      // Background
+      ctx.fillStyle = '#f8f8f8';
+      ctx.fillRect(0, 0, W, H);
+
+      // Threshold lines
+      [[25,'green'],[45,'orange'],[65,'darkorange'],[80,'red']].forEach(([v,c]) => {
+        const y = H - (v / 100) * H;
+        ctx.strokeStyle = c;
+        ctx.setLineDash([4,4]);
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = c;
+        ctx.font = '10px sans-serif';
+        ctx.fillText(v, 2, y - 2);
+      });
+
+      if (data.length < 2) return;
+
+      // Plot line
+      ctx.strokeStyle = 'blue';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      data.forEach((v, i) => {
+        const x = (i / (data.length - 1)) * W;
+        const y = H - (v / 100) * H;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Latest dot
+      const lx = W;
+      const ly = H - (data[data.length-1] / 100) * H;
+      ctx.fillStyle = 'red';
+      ctx.beginPath(); ctx.arc(lx, ly, 4, 0, 2*Math.PI); ctx.fill();
+    }
+
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        document.getElementById('webcam').srcObject = stream;
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled  = false;
+        document.getElementById('s_status').textContent = 'Running';
+        timer = setInterval(sendFrame, 1000);
+      } catch(e) {
+        alert('Camera access denied or unavailable: ' + e.message);
+      }
+    }
+
+    function stopCamera() {
+      clearInterval(timer);
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = null;
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('stopBtn').disabled  = true;
+      document.getElementById('s_status').textContent = 'Stopped';
+    }
+
+    async function sendFrame() {
+      const video  = document.getElementById('webcam');
+      const canvas = document.getElementById('capture');
+      const ctx    = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataURL = canvas.toDataURL('image/jpeg', 0.7);
+
+      frameCount++;
+      document.getElementById('s_frames').textContent = frameCount;
+
+      try {
+        const res = await fetch('/api/live_frame', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: SESSION_ID, frame: dataURL })
+        });
+        const data = await res.json();
+        updateUI(data);
+      } catch(e) {
+        document.getElementById('s_status').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    function updateUI(data) {
+      if (data.status === 'initialising') {
+        document.getElementById('s_status').textContent = 'Initialising...';
+        return;
+      }
+
+      document.getElementById('s_panic').textContent   = data.panic_score + ' / 100';
+      document.getElementById('s_risk').textContent    = data.risk;
+      document.getElementById('s_speed').textContent   = data.metrics.speed;
+      document.getElementById('s_entropy').textContent = data.metrics.entropy;
+      document.getElementById('s_density').textContent = data.metrics.density;
+      document.getElementById('s_accel').textContent   = data.metrics.accel;
+      document.getElementById('s_status').textContent  = 'Active';
+
+      if (data.frame_b64) {
+        document.getElementById('annotated').src = 'data:image/jpeg;base64,' + data.frame_b64;
+      }
+
+      history = data.history || history;
+      drawHistory(document.getElementById('histChart'), history);
+
+      // Alert log for HIGH / CRITICAL
+      if (data.risk === 'HIGH' || data.risk === 'CRITICAL') {
+        const log  = document.getElementById('alertLog');
+        const time = new Date().toLocaleTimeString();
+        log.innerHTML = `<span style="color:${data.risk==='CRITICAL'?'red':'orange'}">
+          [${time}] ${data.risk} — Panic score ${data.panic_score}</span><br>` + log.innerHTML;
+      }
+    }
+  </script>
+
+</body>
+</html>

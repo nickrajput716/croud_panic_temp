@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Analysing Video — Crowd Panic Prediction</title>
+  
+</head>
+<body>
+
+  <h1>Crowd Panic Prediction System</h1>
+  <a href="/">← Back to Home</a>
+  <hr>
+
+  <h2>Analysing Your Video</h2>
+  <p>The system is processing your footage using optical flow and anomaly detection. This may take a minute depending on video length.</p>
+
+  <p><strong>Job ID:</strong> {{ job_id }}</p>
+  <p><strong>Status:</strong> <span id="status-text">Running...</span></p>
+  <p><strong>Progress:</strong> <span id="progress-pct">0</span>%</p>
+
+  <progress id="progress-bar" value="0" max="100" style="width:500px"></progress>
+
+  <br><br>
+  <p id="error-msg" style="color:red"></p>
+
+  <div id="steps">
+    <p>Processing steps:</p>
+    <ol>
+      <li id="step1">Decoding video frames...</li>
+      <li id="step2">Running background subtraction (MOG2)...</li>
+      <li id="step3">Computing dense optical flow (Farneback)...</li>
+      <li id="step4">Calculating motion entropy and divergence...</li>
+      <li id="step5">Fusing signals into panic score...</li>
+      <li id="step6">Generating annotated key frames...</li>
+    </ol>
+  </div>
+
+  <script>
+    const jobId  = "{{ job_id }}";
+    const bar    = document.getElementById('progress-bar');
+    const pct    = document.getElementById('progress-pct');
+    const stText = document.getElementById('status-text');
+    const errMsg = document.getElementById('error-msg');
+
+    function highlightStep(progress) {
+      const steps = [1,2,3,4,5,6];
+      const thresholds = [5, 25, 50, 70, 88, 97];
+      steps.forEach((s, i) => {
+        const el = document.getElementById('step' + s);
+        if (progress >= thresholds[i]) {
+          el.innerHTML = '✓ ' + el.innerHTML.replace('✓ ', '');
+        }
+      });
+    }
+
+    function poll() {
+      fetch('/api/job/' + jobId)
+        .then(r => r.json())
+        .then(data => {
+          if (data.error && data.status !== 'error') {
+            errMsg.textContent = 'Error: ' + data.error;
+            return;
+          }
+          bar.value = data.progress;
+          pct.textContent = data.progress;
+          stText.textContent = data.status;
+          highlightStep(data.progress);
+
+          if (data.status === 'done') {
+            stText.textContent = 'Done! Redirecting...';
+            setTimeout(() => { window.location = '/result/' + jobId; }, 800);
+          } else if (data.status === 'error') {
+            errMsg.textContent = 'Analysis failed: ' + (data.error || 'Unknown error');
+          } else {
+            setTimeout(poll, 1500);
+          }
+        })
+        .catch(() => setTimeout(poll, 2000));
+    }
+
+    poll();
+  </script>
+
+</body>
+</html>

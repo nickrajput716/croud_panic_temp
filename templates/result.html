@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Analysis Report — Crowd Panic Prediction</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <h1>Crowd Panic Prediction System</h1>
+  <a href="/">← Back to Home</a>
+  {% if result.get('is_demo') %}
+  <strong>&nbsp;|&nbsp; [DEMO — Synthetic Data]</strong>
+  {% endif %}
+  <hr>
+
+  <h2>Analysis Report</h2>
+
+  <!-- ── OVERALL VERDICT ── -->
+  <table border="1" cellpadding="8">
+    <tr>
+      <th colspan="2">OVERALL VERDICT</th>
+    </tr>
+    <tr>
+      <td><strong>Risk Level</strong></td>
+      <td><strong>{{ result.overall_risk }}</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Max Panic Score</strong></td>
+      <td>{{ result.max_panic_score }} / 100</td>
+    </tr>
+    <tr>
+      <td><strong>Average Panic Score</strong></td>
+      <td>{{ result.avg_panic_score }} / 100</td>
+    </tr>
+    <tr>
+      <td><strong>Peak Panic At</strong></td>
+      <td>{{ result.peak_panic_timestamp }}s into video</td>
+    </tr>
+    <tr>
+      <td><strong>Video Duration</strong></td>
+      <td>{{ result.duration_seconds }}s @ {{ result.fps }} fps</td>
+    </tr>
+    <tr>
+      <td><strong>Frames Analysed</strong></td>
+      <td>{{ result.total_frames_analysed }}</td>
+    </tr>
+    <tr>
+      <td><strong>Recommendation</strong></td>
+      <td>{{ result.recommendation }}</td>
+    </tr>
+  </table>
+  <br>
+
+  <!-- ── METRICS SUMMARY ── -->
+  <h3>CV Metrics Summary</h3>
+  <table border="1" cellpadding="6">
+    <tr><th>Metric</th><th>Peak Value</th><th>Description</th></tr>
+    <tr>
+      <td>Max Speed (px/frame)</td>
+      <td>{{ result.metrics_summary.max_speed }}</td>
+      <td>Average motion magnitude — fast = running / fleeing</td>
+    </tr>
+    <tr>
+      <td>Max Direction Entropy</td>
+      <td>{{ result.metrics_summary.max_entropy }}</td>
+      <td>1.0 = totally chaotic; 0.0 = perfectly uniform</td>
+    </tr>
+    <tr>
+      <td>Max Crowd Density</td>
+      <td>{{ result.metrics_summary.max_density }}</td>
+      <td>Foreground pixel ratio from MOG2 subtraction</td>
+    </tr>
+    <tr>
+      <td>Max Acceleration</td>
+      <td>{{ result.metrics_summary.max_accel }}</td>
+      <td>Sudden speed change — crowd surge indicator</td>
+    </tr>
+  </table>
+  <hr>
+
+  <!-- ── PANIC SCORE CHART ── -->
+  <h3>Panic Score Over Time</h3>
+  <canvas id="panicChart" width="900" height="300"></canvas>
+  <br>
+
+  <!-- ── MULTI-METRIC CHART ── -->
+  <h3>Individual Signal Traces</h3>
+  <canvas id="metricsChart" width="900" height="300"></canvas>
+  <br>
+  <p><em>
+    Speed = avg optical-flow magnitude &nbsp;|&nbsp;
+    Entropy = directional chaos [0–1] &nbsp;|&nbsp;
+    Density = crowd foreground ratio
+  </em></p>
+  <hr>
+
+  <!-- ── KEY ANNOTATED FRAMES ── -->
+  {% if result.key_frames %}
+  <h3>Annotated Key Frames (Optical Flow Overlay)</h3>
+  <p>Arrows show motion vectors. Arrow colour: green = slow, red = fast. Banner shows panic score.</p>
+  <table border="1" cellpadding="4">
+    <tr>
+      {% for kf in result.key_frames %}
+      <td align="center">
+        <img src="data:image/jpeg;base64,{{ kf.image }}" width="280" alt="Frame at {{ kf.timestamp }}s"><br>
+        t={{ kf.timestamp }}s &nbsp; Score={{ kf.score }} &nbsp; {{ kf.risk }}
+      </td>
+      {% if loop.index % 3 == 0 %}</tr><tr>{% endif %}
+      {% endfor %}
+    </tr>
+  </table>
+  <hr>
+  {% endif %}
+
+  <!-- ── FRAME-BY-FRAME TABLE ── -->
+  <h3>Frame-by-Frame Analysis</h3>
+  <p>
+    <label>Filter risk level:
+      <select id="riskFilter" onchange="filterTable()">
+        <option value="">All</option>
+        <option value="NORMAL">NORMAL</option>
+        <option value="LOW">LOW</option>
+        <option value="MODERATE">MODERATE</option>
+        <option value="HIGH">HIGH</option>
+        <option value="CRITICAL">CRITICAL</option>
+      </select>
+    </label>
+    &nbsp;&nbsp;
+    <label>Min panic score: <input type="number" id="minScore" value="0" min="0" max="100" onchange="filterTable()" style="width:60px"></label>
+    &nbsp;&nbsp;
+    <strong>Showing: <span id="rowCount">{{ result.frame_analyses|length }}</span> rows</strong>
+  </p>
+
+  <table border="1" cellpadding="5" id="frameTable">
+    <thead>
+      <tr>
+        <th>Frame #</th>
+        <th>Time (s)</th>
+        <th>Panic Score</th>
+        <th>Risk Level</th>
+        <th>Avg Speed</th>
+        <th>Entropy</th>
+        <th>Density</th>
+        <th>Acceleration</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody">
+      {% for row in result.frame_analyses %}
+      <tr data-risk="{{ row.risk_level }}" data-score="{{ row.panic_score }}">
+        <td>{{ row.frame }}</td>
+        <td>{{ row.timestamp }}</td>
+        <td>{{ row.panic_score }}</td>
+        <td>{{ row.risk_level }}</td>
+        <td>{{ row.avg_speed }}</td>
+        <td>{{ row.entropy }}</td>
+        <td>{{ row.density }}</td>
+        <td>{{ row.acceleration }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <br>
+
+  <!-- ── DOWNLOAD JSON ── -->
+  <h3>Export Raw Data</h3>
+  <button onclick="downloadJSON()">Download Full JSON Report</button>
+  <br><br>
+  <a href="/">← Analyse Another Video</a>
+  <hr>
+  <p><em>Crowd Panic Prediction System — Public Safety AI | Built with Python + Flask + OpenCV</em></p>
+
+  <script>
+    // ── Chart data from Jinja ──
+    const chartData = {{ result.chart | tojson }};
+
+    // Risk colours for chart background
+    function scoreToColor(s, alpha) {
+      if (s < 25) return `rgba(0,180,0,${alpha})`;
+      if (s < 45) return `rgba(100,220,0,${alpha})`;
+      if (s < 65) return `rgba(255,165,0,${alpha})`;
+      if (s < 80) return `rgba(255,80,0,${alpha})`;
+      return `rgba(220,0,0,${alpha})`;
+    }
+
+    const bgColors = chartData.panic_scores.map(s => scoreToColor(s, 0.5));
+    const bdColors = chartData.panic_scores.map(s => scoreToColor(s, 0.9));
+
+    // ── Panic score bar chart ──
+    new Chart(document.getElementById('panicChart'), {
+      type: 'bar',
+      data: {
+        labels: chartData.timestamps,
+        datasets: [{
+          label: 'Panic Score',
+          data: chartData.panic_scores,
+          backgroundColor: bgColors,
+          borderColor: bdColors,
+          borderWidth: 1,
+        }]
+      },
+      options: {
+        responsive: false,
+        plugins: {
+          legend: { display: true },
+          tooltip: {
+            callbacks: {
+              afterLabel: ctx => {
+                const s = ctx.parsed.y;
+                if (s < 25) return 'Risk: NORMAL';
+                if (s < 45) return 'Risk: LOW';
+                if (s < 65) return 'Risk: MODERATE';
+                if (s < 80) return 'Risk: HIGH';
+                return 'Risk: CRITICAL';
+              }
+            }
+          }
+        },
+        scales: {
+          x: { title: { display: true, text: 'Time (seconds)' } },
+          y: { min: 0, max: 100, title: { display: true, text: 'Panic Score' } }
+        }
+      }
+    });
+
+    // ── Multi-metric line chart ──
+    // Normalise speed & density to [0,1] for display
+    const maxSpeed = Math.max(...chartData.speeds) || 1;
+    const maxDens  = Math.max(...chartData.densities) || 1;
+
+    new Chart(document.getElementById('metricsChart'), {
+      type: 'line',
+      data: {
+        labels: chartData.timestamps,
+        datasets: [
+          {
+            label: 'Speed (normalised)',
+            data: chartData.speeds.map(v => v / maxSpeed),
+            borderColor: 'blue', fill: false, pointRadius: 0, borderWidth: 1.5,
+          },
+          {
+            label: 'Direction Entropy',
+            data: chartData.entropies,
+            borderColor: 'red', fill: false, pointRadius: 0, borderWidth: 1.5,
+          },
+          {
+            label: 'Density (normalised)',
+            data: chartData.densities.map(v => v / maxDens),
+            borderColor: 'green', fill: false, pointRadius: 0, borderWidth: 1.5,
+          },
+        ]
+      },
+      options: {
+        responsive: false,
+        plugins: { legend: { display: true } },
+        scales: {
+          x: { title: { display: true, text: 'Time (seconds)' } },
+          y: { min: 0, max: 1, title: { display: true, text: 'Normalised Value' } }
+        }
+      }
+    });
+
+    // ── Table filter ──
+    function filterTable() {
+      const risk  = document.getElementById('riskFilter').value;
+      const minSc = parseFloat(document.getElementById('minScore').value) || 0;
+      const rows  = document.querySelectorAll('#tableBody tr');
+      let visible = 0;
+      rows.forEach(r => {
+        const riskMatch  = !risk || r.dataset.risk === risk;
+        const scoreMatch = parseFloat(r.dataset.score) >= minSc;
+        const show = riskMatch && scoreMatch;
+        r.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+      document.getElementById('rowCount').textContent = visible;
+    }
+
+    // ── JSON download ──
+    function downloadJSON() {
+      const raw = {{ result | tojson }};
+      // Remove large base64 key_frames from export
+      const export_data = Object.assign({}, raw);
+      export_data.key_frames = export_data.key_frames.map(kf => ({
+        timestamp: kf.timestamp, score: kf.score, risk: kf.risk
+      }));
+      const blob = new Blob([JSON.stringify(export_data, null, 2)], {type: 'application/json'});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = 'crowd_panic_report.json'; a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+
+</body>
+</html>
